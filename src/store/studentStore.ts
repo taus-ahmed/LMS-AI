@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { StudentProfile, ChatMessage, ProjectBrief } from '../types/student';
+import { initializeDatabase, saveStudentProfile } from '../services/database';
 
-const SIMULATED_STUDENT: StudentProfile = {
+export const SIMULATED_STUDENT: StudentProfile = {
   name: 'Alex Morgan',
   studentId: 'ENG-2026-0482',
   course: 'Introduction to Mechatronics Engineering',
@@ -129,22 +130,32 @@ const SIMULATED_STUDENT: StudentProfile = {
       type: 'text',
     },
   ],
+  // New field with default value
+  notes: [],
 };
 
 interface StudentStore {
-  student: StudentProfile;
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
-  setProject: (project: ProjectBrief) => void;
+  student: StudentProfile | null;
+  isLoading: boolean;
+  error: string | null;
+  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => Promise<void>;
+  setProject: (project: ProjectBrief) => Promise<void>;
   isGeneratingProject: boolean;
   setIsGeneratingProject: (val: boolean) => void;
   isMentorTyping: boolean;
   setIsMentorTyping: (val: boolean) => void;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
+  initialize: () => Promise<void>;
+  // New actions for notes
+  addNote: (note: string) => Promise<void>;
+  removeNote: (index: number) => Promise<void>;
 }
 
-export const useStudentStore = create<StudentStore>((set) => ({
-  student: SIMULATED_STUDENT,
+export const useStudentStore = create<StudentStore>((set, get) => ({
+  student: null,
+  isLoading: true,
+  error: null,
   sidebarOpen: false,
   isGeneratingProject: false,
   isMentorTyping: false,
@@ -154,27 +165,78 @@ export const useStudentStore = create<StudentStore>((set) => ({
   setIsGeneratingProject: (val) => set({ isGeneratingProject: val }),
   setIsMentorTyping: (val) => set({ isMentorTyping: val }),
 
-  addMessage: (message) =>
-    set((state) => ({
-      student: {
-        ...state.student,
-        chatHistory: [
-          ...state.student.chatHistory,
-          {
-            ...message,
-            id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      },
-    })),
+  initialize: async () => {
+    try {
+      set({ isLoading: true, error: null });
+      const studentData = await initializeDatabase();
+      set({ student: studentData, isLoading: false });
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      set({
+        error: 'Failed to load student data',
+        isLoading: false,
+        student: SIMULATED_STUDENT // Fallback to hard-coded data
+      });
+    }
+  },
 
-  setProject: (project) =>
-    set((state) => ({
-      student: {
-        ...state.student,
-        project,
-        projectUnlocked: true,
-      },
-    })),
+  addMessage: async (message) => {
+    const state = get();
+    if (!state.student) return;
+
+    const newMessage = {
+      ...message,
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString(),
+    };
+
+    const updatedStudent = {
+      ...state.student,
+      chatHistory: [...state.student.chatHistory, newMessage],
+    };
+
+    set({ student: updatedStudent });
+    await saveStudentProfile(updatedStudent);
+  },
+
+  setProject: async (project) => {
+    const state = get();
+    if (!state.student) return;
+
+    const updatedStudent = {
+      ...state.student,
+      project,
+      projectUnlocked: true,
+    };
+
+    set({ student: updatedStudent });
+    await saveStudentProfile(updatedStudent);
+  },
+
+  addNote: async (note) => {
+    const state = get();
+    if (!state.student) return;
+
+    const updatedStudent = {
+      ...state.student,
+      notes: [...(state.student.notes || []), note],
+    };
+
+    set({ student: updatedStudent });
+    await saveStudentProfile(updatedStudent);
+  },
+
+  removeNote: async (index) => {
+    const state = get();
+    if (!state.student || !state.student.notes) return;
+
+    const updatedNotes = state.student.notes.filter((_, i) => i !== index);
+    const updatedStudent = {
+      ...state.student,
+      notes: updatedNotes,
+    };
+
+    set({ student: updatedStudent });
+    await saveStudentProfile(updatedStudent);
+  },
 }));

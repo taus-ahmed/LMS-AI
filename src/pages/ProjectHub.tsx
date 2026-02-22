@@ -36,18 +36,30 @@ const item = {
 
 export default function ProjectHub() {
   const student = useStudentStore((s) => s.student);
+  const isLoading = useStudentStore((s) => s.isLoading);
   const setProject = useStudentStore((s) => s.setProject);
   const isGeneratingProject = useStudentStore((s) => s.isGeneratingProject);
   const setIsGeneratingProject = useStudentStore((s) => s.setIsGeneratingProject);
   const addMessage = useStudentStore((s) => s.addMessage);
 
-  const project = student.project;
+  const project = student?.project;
   const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
     project?.milestones.find((m) => m.status === 'in-progress')?.id || null
   );
   const [activeTab, setActiveTab] = useState<'brief' | 'requirements' | 'milestones'>(
     'brief'
   );
+
+  if (isLoading || !student) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your project hub...</p>
+        </div>
+      </div>
+    );
+  }
   const [genError, setGenError] = useState<string | null>(null);
   const [genStage, setGenStage] = useState('');
 
@@ -78,10 +90,10 @@ export default function ProjectHub() {
     try {
       const generatedProject = await generateAIProject(student);
       clearInterval(stageInterval);
-      setProject(generatedProject);
+      await setProject(generatedProject);
 
       // Add a mentor message about the generated project
-      addMessage({
+      await addMessage({
         role: 'mentor',
         content: `🚀 Your personalized project has been generated: **"${generatedProject.title}"**\n\nThis project was tailored based on your strong performance in Programming (${student.skills.find((s) => s.name.includes('Programming'))?.score}%) and Circuit Design (${student.skills.find((s) => s.name.includes('Circuit'))?.score}%), while incorporating opportunities to strengthen your Mechanical Design and Sensor Integration skills.\n\nHead to the **My Project** page to review the full brief, requirements, and milestone timeline. Feel free to ask me any questions about the project!`,
         type: 'feedback',

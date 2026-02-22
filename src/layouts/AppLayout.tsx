@@ -28,6 +28,10 @@ export default function AppLayout() {
 
   const currentPage = navItems.find((item) => item.to === location.pathname)?.label || 'Dashboard';
 
+  if (!student) {
+    return <div className="flex h-screen items-center justify-center">Loading Saved User...</div>;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
       {/* Mobile overlay */}

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.0",
+    "dexie": "^4.3.0",
     "framer-motion": "^11.0.8",
     "lucide-react": "^0.533.0",
     "react": "^18.3.1",

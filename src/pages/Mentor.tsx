@@ -26,6 +26,7 @@ const quickPrompts = [
 
 export default function Mentor() {
   const student = useStudentStore((s) => s.student);
+  const isLoading = useStudentStore((s) => s.isLoading);
   const addMessage = useStudentStore((s) => s.addMessage);
   const isMentorTyping = useStudentStore((s) => s.isMentorTyping);
   const setIsMentorTyping = useStudentStore((s) => s.setIsMentorTyping);
@@ -36,17 +37,29 @@ export default function Mentor() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [student.chatHistory, isMentorTyping]);
+  }, [student?.chatHistory, isMentorTyping]);
 
   // Build conversation history for Groq context
   const buildConversationHistory = useCallback(() => {
+    if (!student) return [];
     return student.chatHistory
       .filter((msg) => msg.role === 'student' || msg.role === 'mentor')
       .map((msg) => ({
         role: msg.role === 'student' ? 'user' as const : 'assistant' as const,
         content: msg.content,
       }));
-  }, [student.chatHistory]);
+  }, [student?.chatHistory]);
+
+  if (isLoading || !student) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your mentor chat...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSend = useCallback(
     async (text?: string) => {
@@ -54,18 +67,18 @@ export default function Mentor() {
       if (!message || isMentorTyping) return;
 
       setError(null);
-      addMessage({ role: 'student', content: message, type: 'text' });
+      await addMessage({ role: 'student', content: message, type: 'text' });
       setInputValue('');
       setIsMentorTyping(true);
 
       try {
         const conversationHistory = buildConversationHistory();
         const response = await getMentorResponse(student, message, conversationHistory);
-        addMessage({ role: 'mentor', content: response, type: 'text' });
+        await addMessage({ role: 'mentor', content: response, type: 'text' });
       } catch (err) {
         console.error('Mentor response error:', err);
         setError('Failed to get AI response. Please try again.');
-        addMessage({
+        await addMessage({
           role: 'mentor',
           content:
             "I'm having trouble connecting right now. This could be a temporary network issue. Please try sending your message again in a moment.",

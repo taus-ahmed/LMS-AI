@@ -58,4 +58,6 @@ export interface StudentProfile {
   project: ProjectBrief | null;
   projectUnlocked: boolean;
   chatHistory: ChatMessage[];
+  // New field example
+  notes?: string[]; // Array of personal notes
 }
