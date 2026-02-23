@@ -256,7 +256,6 @@ export default function ProjectHub() {
               .filter(Boolean);
             const totalMs = proj.brief.milestones.length;
             const completedMs = proj.brief.milestones.filter((m) => m.status === 'completed').length;
-            const progressPct = totalMs > 0 ? Math.round((completedMs / totalMs) * 100) : 0;
             return (
               <motion.div key={proj.id} variants={item}
                 className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col">
@@ -297,24 +296,9 @@ export default function ProjectHub() {
                   </Link>
                   <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{proj.brief.context}</p>
 
-                  {/* Milestone progress bar */}
-                  {totalMs > 0 && (
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-slate-400 font-medium">{completedMs}/{totalMs} milestones</span>
-                        <span className="text-[10px] font-semibold text-indigo-600">{progressPct}%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all"
-                          style={{ width: `${progressPct}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
                   {/* Stats */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-400">
+                    <span className="flex items-center gap-1"><Target className="w-3 h-3" /> {completedMs}/{totalMs} milestones</span>
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> ~{proj.brief.totalEstimatedHours}h</span>
                     <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {proj.brief.deliverables.length} deliverables</span>
                     <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" /> {proj.chatHistory.length} messages</span>
