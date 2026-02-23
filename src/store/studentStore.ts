@@ -275,9 +275,15 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
 
       // Ensure fields introduced by the teammate branch always exist on the
       // profile even when the record was written by an older DB schema version.
+      // If enrolledCourseIds is missing or empty (old profile saved before the
+      // field existed), fall back to all four default course IDs so that
+      // CourseProgress never renders blank.
+      const DEFAULT_ENROLLED_IDS = ['mech301', 'ece420', 'cse460', 'me544'];
       const hydrated: StudentProfile = {
         ...studentData,
-        enrolledCourseIds: studentData.enrolledCourseIds ?? [],
+        enrolledCourseIds: studentData.enrolledCourseIds?.length
+          ? studentData.enrolledCourseIds
+          : DEFAULT_ENROLLED_IDS,
         projects: studentData.projects ?? [],
       };
 
@@ -286,6 +292,36 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       // Hydrate project inventory
       await get().loadProjects();
       await get().loadActiveProject();
+
+      // Reconcile: for every Dexie ProjectRecord that has NO matching entry
+      // in student.projects, create a stub StudentProject so that
+      // addProjectMessage can always find the project and append messages.
+      // Without this, projects created in old sessions (stored only in Dexie)
+      // cause the mentor chat to silently swallow replies.
+      const currentStudent = get().student;
+      const dexieRecs = get().projects;
+      if (currentStudent && dexieRecs.length > 0) {
+        const inMemoryIds = new Set(currentStudent.projects.map((p) => p.id));
+        const stubs: StudentProject[] = dexieRecs
+          .filter((rec) => !inMemoryIds.has(rec.id))
+          .map((rec) => ({
+            id: rec.id,
+            createdAt: rec.createdAt,
+            // selectedCourseIds and chatHistory are unknown for legacy records;
+            // we use empty arrays which getUnifiedProject will merge over.
+            selectedCourseIds: [],
+            brief: rec.brief,
+            chatHistory: [],
+          }));
+        if (stubs.length > 0) {
+          const merged: StudentProfile = {
+            ...currentStudent,
+            projects: [...currentStudent.projects, ...stubs],
+          };
+          set({ student: merged });
+          saveStudentProfile(merged).catch(console.error);
+        }
+      }
 
       // If there is no active project but there are projects, pick the most
       // recently updated one as the default active project

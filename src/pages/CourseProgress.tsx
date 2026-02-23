@@ -34,6 +34,19 @@ export default function CourseProgress() {
   }
 
   const activeCourse = enrolledCourses.find((c) => c.id === activeCourseId);
+
+  if (enrolledCourses.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
+          <CheckCircle2 className="w-8 h-8 text-slate-400" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-900" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>No enrolled courses</h3>
+        <p className="text-sm text-slate-500 max-w-sm">Your course enrollment data hasn't loaded yet. Try refreshing the page.</p>
+      </div>
+    );
+  }
+
   if (!activeCourse) return null;
 
   const completedWeeks = activeCourse.weekModules.filter((w) => w.status === 'completed').length;
