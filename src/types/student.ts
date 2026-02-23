@@ -1,3 +1,5 @@
+// ─── Base Building Blocks ────────────────────────────────────────────
+
 export interface SkillArea {
   name: string;
   score: number; // 0-100
@@ -43,19 +45,40 @@ export interface ChatMessage {
   type?: 'text' | 'reminder' | 'feedback' | 'reflection';
 }
 
+// ─── Course Program (the catalog from which users pick) ──────────────
+
+export interface CourseProgram {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  color: string;           // tailwind color token e.g. 'indigo'
+  icon: string;            // lucide icon name
+  semester: string;
+  totalWeeks: number;
+  weekModules: WeekModule[];
+  skills: SkillArea[];
+}
+
+// ─── Student Project (one per generation, owns its own mentor) ───────
+
+export interface StudentProject {
+  id: string;
+  createdAt: string;
+  selectedCourseIds: string[];   // which courses from the catalog were combined
+  brief: ProjectBrief;
+  chatHistory: ChatMessage[];    // per-project mentor conversation
+}
+
+// ─── Student Profile (no longer has a single project/chatHistory) ────
+
 export interface StudentProfile {
   name: string;
   studentId: string;
-  course: string;
-  courseCode: string;
   semester: string;
   currentWeek: number;
-  totalWeeks: number;
   overallProgress: number;
   gpa: number;
-  skills: SkillArea[];
-  weekModules: WeekModule[];
-  project: ProjectBrief | null;
-  projectUnlocked: boolean;
-  chatHistory: ChatMessage[];
+  enrolledCourseIds: string[];   // which courses the student is taking
+  projects: StudentProject[];    // multiple projects
 }
