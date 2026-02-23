@@ -323,7 +323,7 @@ export default function ProjectLibrary() {
   const handleOpen = async (id: string) => {
     setBusyId(id);
     await setActiveProject(id);
-    navigate('/project');
+    navigate(`/project/${id}`);
   };
 
   const handleReset = async (id: string) => {

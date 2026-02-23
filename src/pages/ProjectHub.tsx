@@ -249,58 +249,88 @@ export default function ProjectHub() {
       )}
 
       {unifiedProjects.length > 0 && (
-        <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {unifiedProjects.map((proj) => {
             const courses = proj.selectedCourseIds
               .map((id) => COURSE_PROGRAMS.find((c) => c.id === id))
               .filter(Boolean);
+            const totalMs = proj.brief.milestones.length;
             const completedMs = proj.brief.milestones.filter((m) => m.status === 'completed').length;
+            const progressPct = totalMs > 0 ? Math.round((completedMs / totalMs) * 100) : 0;
             return (
               <motion.div key={proj.id} variants={item}
-                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                <div className="p-5 sm:p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {courses.map((c) => c && (
-                          <span key={c.id} className={clsx('text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full',
-                            COLOR_MAP[c.color]?.bg, COLOR_MAP[c.color]?.text)}>
-                            {c.code}
-                          </span>
-                        ))}
+                className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+
+                {/* Card header: course tags + delete button */}
+                <div className="px-4 pt-4 pb-3 border-b border-slate-50 flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {courses.length > 0 ? courses.map((c) => c && (
+                      <span key={c.id} className={clsx(
+                        'text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full',
+                        COLOR_MAP[c.color]?.bg, COLOR_MAP[c.color]?.text,
+                      )}>
+                        {c.code}
+                      </span>
+                    )) : (
+                      <span className="text-[10px] font-medium text-slate-400 italic">No courses linked</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm('Delete this project? This action cannot be undone.')) return;
+                      deleteProject(proj.id);
+                      deleteProjectById(proj.id).catch(console.error);
+                    }}
+                    className="flex-shrink-0 p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                    title="Delete project">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Card body */}
+                <div className="px-4 py-3 flex-1 flex flex-col gap-2">
+                  <Link to={`/project/${proj.id}`} className="group">
+                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-2"
+                      style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                      {proj.brief.title}
+                    </h3>
+                  </Link>
+                  <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{proj.brief.context}</p>
+
+                  {/* Milestone progress bar */}
+                  {totalMs > 0 && (
+                    <div className="mt-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-slate-400 font-medium">{completedMs}/{totalMs} milestones</span>
+                        <span className="text-[10px] font-semibold text-indigo-600">{progressPct}%</span>
                       </div>
-                      <Link to={`/project/${proj.id}`} className="group">
-                        <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors"
-                          style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                          {proj.brief.title}
-                        </h3>
-                      </Link>
-                      <p className="text-sm text-slate-500 mt-1 line-clamp-2">{proj.brief.context}</p>
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
                     </div>
-                    <button onClick={() => { deleteProject(proj.id); deleteProjectById(proj.id).catch(console.error); }}
-                      className="flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
-                      title="Delete project">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  )}
 
-                  <div className="flex flex-wrap items-center gap-4 mt-4 text-xs text-slate-500">
-                    <span className="flex items-center gap-1"><Target className="w-3.5 h-3.5" /> {completedMs}/{proj.brief.milestones.length} Milestones</span>
-                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> ~{proj.brief.totalEstimatedHours}h</span>
-                    <span className="flex items-center gap-1"><Package className="w-3.5 h-3.5" /> {proj.brief.deliverables.length} Deliverables</span>
-                    <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> {proj.chatHistory.length} messages</span>
+                  {/* Stats */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-400">
+                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> ~{proj.brief.totalEstimatedHours}h</span>
+                    <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {proj.brief.deliverables.length} deliverables</span>
+                    <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" /> {proj.chatHistory.length} messages</span>
                   </div>
+                </div>
 
-                  <div className="flex gap-2 mt-4">
-                    <Link to={`/project/${proj.id}`}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-100 transition-colors">
-                      <Target className="w-4 h-4" /> View Brief
-                    </Link>
-                    <Link to={`/project/${proj.id}/mentor`}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-sm font-medium hover:bg-indigo-100 transition-colors">
-                      <MessageCircle className="w-4 h-4" /> Open Mentor
-                    </Link>
-                  </div>
+                {/* Card footer actions */}
+                <div className="px-4 pb-4 pt-2 flex gap-2 border-t border-slate-50">
+                  <Link to={`/project/${proj.id}`}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-100 transition-colors">
+                    <Target className="w-3.5 h-3.5" /> View Brief
+                  </Link>
+                  <Link to={`/project/${proj.id}/mentor`}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-500/20">
+                    <MessageCircle className="w-3.5 h-3.5" /> Open Mentor
+                  </Link>
                 </div>
               </motion.div>
             );
