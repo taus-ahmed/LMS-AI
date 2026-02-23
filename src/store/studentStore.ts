@@ -236,8 +236,9 @@ interface StudentStore {
   deleteProjectNote: (projectId: string, noteId: string) => Promise<void>;
 
   // ── In-memory StudentProject actions (ProjectHub / ProjectMentor) ──
-  /** Creates a StudentProject inside student.projects (in-memory + persisted) */
-  addProject: (courseIds: string[], brief: ProjectBrief) => string;
+  /** Creates a StudentProject inside student.projects (in-memory + persisted).
+   *  Pass `id` to reuse a Dexie ProjectRecord id so both models share the same key. */
+  addProject: (courseIds: string[], brief: ProjectBrief, id?: string) => string;
   /** Removes a StudentProject from student.projects by id */
   deleteProject: (projectId: string) => void;
   /** Appends a chat message to a specific StudentProject's chatHistory */
@@ -517,8 +518,8 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
   // These write to student.projects (StudentProject[]) on the profile object.
   // ---------------------------------------------------------------------------
 
-  addProject: (courseIds, brief) => {
-    const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  addProject: (courseIds, brief, precomputedId) => {
+    const id = precomputedId ?? `proj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newProject: StudentProject = {
       id,
       createdAt: new Date().toISOString(),
