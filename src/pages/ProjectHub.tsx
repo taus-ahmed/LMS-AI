@@ -6,6 +6,7 @@ import {
   MessageCircle, Trash2, AlertCircle, Cpu, Activity, Bot,
 } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
+import { useUnifiedProjects } from '../utils/projectAdapter';
 import { COURSE_PROGRAMS } from '../data/coursePrograms';
 import { generateAIProject } from '../services/aiService';
 import clsx from 'clsx';
@@ -28,10 +29,14 @@ export default function ProjectHub() {
   const isLoading = useStudentStore((s) => s.isLoading);
   const addProject = useStudentStore((s) => s.addProject);
   const deleteProject = useStudentStore((s) => s.deleteProject);
+  const deleteProjectById = useStudentStore((s) => s.deleteProjectById);
   const createProjectFromGenerated = useStudentStore((s) => s.createProjectFromGenerated);
   const archiveActiveIfUnused = useStudentStore((s) => s.archiveActiveIfUnused);
   const isGenerating = useStudentStore((s) => s.isGeneratingProject);
   const setIsGenerating = useStudentStore((s) => s.setIsGeneratingProject);
+
+  // Dexie-backed unified project list (source of truth for count + status)
+  const unifiedProjects = useUnifiedProjects();
 
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [genError, setGenError] = useState<string | null>(null);
@@ -62,11 +67,13 @@ export default function ProjectHub() {
     try {
       const brief = await generateAIProject(student, selectedCourses);
       clearInterval(interval);
-      // Add to student.projects (in-memory + persisted) — drives this page & ProjectMentor
-      addProject(selectedCourses, brief);
-      // Also create a Dexie ProjectRecord so ProjectLibrary & Calendar stay in sync
-      archiveActiveIfUnused();
-      createProjectFromGenerated(brief).catch(console.error);
+      // 1. Archive the previously-active project if it was never started
+      await archiveActiveIfUnused();
+      // 2. Create the canonical Dexie record — this sets the shared id
+      const dexieId = await createProjectFromGenerated(brief);
+      // 3. Create the in-memory StudentProject using the SAME id so the
+      //    adapter can merge both models by id
+      addProject(selectedCourses, brief, dexieId);
       setSelectedCourses([]);
       setShowCreator(false);
     } catch (err) {
@@ -101,7 +108,7 @@ export default function ProjectHub() {
             My Projects
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            {student.projects.length} project{student.projects.length !== 1 ? 's' : ''} created · Select courses to generate new ones
+          {unifiedProjects.length} project{unifiedProjects.length !== 1 ? 's' : ''} created · Select courses to generate new ones
           </p>
         </div>
         {!showCreator && (
@@ -223,7 +230,7 @@ export default function ProjectHub() {
       )}
 
       {/* ─── Project Cards List ─── */}
-      {student.projects.length === 0 && !showCreator && (
+      {unifiedProjects.length === 0 && !showCreator && (
         <motion.div variants={item} className="text-center py-16">
           <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
             <Sparkles className="w-8 h-8 text-slate-400" />
@@ -241,9 +248,9 @@ export default function ProjectHub() {
         </motion.div>
       )}
 
-      {student.projects.length > 0 && (
+      {unifiedProjects.length > 0 && (
         <div className="space-y-4">
-          {student.projects.map((proj) => {
+          {unifiedProjects.map((proj) => {
             const courses = proj.selectedCourseIds
               .map((id) => COURSE_PROGRAMS.find((c) => c.id === id))
               .filter(Boolean);
@@ -270,7 +277,7 @@ export default function ProjectHub() {
                       </Link>
                       <p className="text-sm text-slate-500 mt-1 line-clamp-2">{proj.brief.context}</p>
                     </div>
-                    <button onClick={() => deleteProject(proj.id)}
+                    <button onClick={() => { deleteProject(proj.id); deleteProjectById(proj.id).catch(console.error); }}
                       className="flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
                       title="Delete project">
                       <Trash2 className="w-4 h-4" />
