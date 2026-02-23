@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
-import { Bot, FolderOpen, MessageCircle, Sparkles, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Bot, MessageCircle, Sparkles, ArrowRight } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
+import { useUnifiedProjects } from '../utils/projectAdapter';
 import { COURSE_PROGRAMS } from '../data/coursePrograms';
 import clsx from 'clsx';
 
@@ -17,28 +17,13 @@ const COLOR_MAP: Record<string, { bg: string; text: string }> = {
 };
 
 export default function Mentor() {
-  const navigate = useNavigate();
-  const student = useStudentStore((s) => s.student);
+  // isLoading: guard against rendering before Dexie hydration completes
   const isLoading = useStudentStore((s) => s.isLoading);
-  const activeProjectId = useStudentStore((s) => s.activeProjectId);
+  // useUnifiedProjects reads from Dexie (store.projects) merged with in-memory
+  // chatHistory/courseIds — Dexie is the authoritative source for project count.
+  const unifiedProjects = useUnifiedProjects();
 
-  // Gateway: if there is an active project, send directly to its mentor page.
-  useEffect(() => {
-    if (!isLoading && activeProjectId) {
-      navigate(`/project/${activeProjectId}/mentor`, { replace: true });
-    }
-  }, [isLoading, activeProjectId, navigate]);
-
-  if (isLoading || !student) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto" />
-      </div>
-    );
-  }
-
-  // Still redirecting — show spinner so there is no flash of content.
-  if (activeProjectId) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto" />
@@ -53,12 +38,11 @@ export default function Mentor() {
           AI Mentors
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Each project has its own dedicated AI mentor. Select a project below to open its chat, or open a project from the Project Library to set it as active.
+          Each project has its own dedicated AI mentor that only knows about that project and its source courses — no cross-contamination between projects.
         </p>
       </motion.div>
 
-      {student.projects.length === 0 ? (
-        /* ── No projects: guide the user toward creating one ── */
+      {unifiedProjects.length === 0 ? (
         <motion.div variants={item} className="text-center py-16">
           <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
             <Bot className="w-8 h-8 text-slate-400" />
@@ -66,94 +50,60 @@ export default function Mentor() {
           <h3 className="text-lg font-bold text-slate-900 mb-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
             No mentors yet
           </h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
-            Mentors are created automatically when you generate a project. Each project gets its own dedicated AI mentor that stays scoped to that project's courses.
+          <p className="text-sm text-slate-500 max-w-md mx-auto mb-5">
+            Mentors are created automatically when you generate a project. Each project gets its own dedicated AI mentor.
           </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link
-              to="/project"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
-            >
-              <Sparkles className="w-4 h-4" /> Create a Project
-            </Link>
-            <Link
-              to="/projects"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-all"
-            >
-              <FolderOpen className="w-4 h-4" /> Open Project Library
-            </Link>
-          </div>
+          <Link to="/project"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20">
+            <Sparkles className="w-4 h-4" /> Create a Project First
+          </Link>
         </motion.div>
       ) : (
-        /* ── Projects exist but none is active: show per-project mentor cards ── */
-        <>
-          <motion.div variants={item} className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-            <FolderOpen className="w-4 h-4 flex-shrink-0" />
-            <span>
-              No active project selected.{' '}
-              <Link to="/projects" className="font-semibold underline hover:text-amber-900">
-                Open the Project Library
-              </Link>{' '}
-              to set one as active, or tap a mentor card below to go straight to that project's chat.
-            </span>
-          </motion.div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {unifiedProjects.map((proj) => {
+            const courses = proj.selectedCourseIds
+              .map((id) => COURSE_PROGRAMS.find((c) => c.id === id))
+              .filter(Boolean);
+            // chatHistory lives in the in-memory model, merged via useUnifiedProjects
+            const msgCount = proj.chatHistory.length;
 
-          <div className="grid sm:grid-cols-2 gap-4">
-            {student.projects.map((proj) => {
-              const courses = proj.selectedCourseIds
-                .map((id) => COURSE_PROGRAMS.find((c) => c.id === id))
-                .filter(Boolean);
-              const msgCount = proj.chatHistory.length;
-
-              return (
-                <motion.div key={proj.id} variants={item}>
-                  <Link
-                    to={`/project/${proj.id}/mentor`}
-                    className="block bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:shadow-md hover:border-indigo-200 transition-all group"
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 flex-shrink-0">
-                        <Bot className="w-6 h-6 text-white" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap gap-1.5 mb-1.5">
-                          {courses.map((c) => c && (
-                            <span
-                              key={c.id}
-                              className={clsx(
-                                'text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full',
-                                COLOR_MAP[c.color]?.bg,
-                                COLOR_MAP[c.color]?.text,
-                              )}
-                            >
-                              {c.code}
-                            </span>
-                          ))}
-                        </div>
-                        <h3
-                          className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1"
-                          style={{ fontFamily: "'Space Grotesk', sans-serif" }}
-                        >
-                          {proj.brief.title}
-                        </h3>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
-                          <span className="flex items-center gap-1">
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            {msgCount} message{msgCount !== 1 ? 's' : ''}
+            return (
+              <motion.div key={proj.id} variants={item}>
+                <Link to={`/project/${proj.id}/mentor`}
+                  className="block bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:shadow-md hover:border-indigo-200 transition-all group">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 flex-shrink-0">
+                      <Bot className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap gap-1.5 mb-1.5">
+                        {courses.map((c) => c && (
+                          <span key={c.id} className={clsx('text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full',
+                            COLOR_MAP[c.color]?.bg, COLOR_MAP[c.color]?.text)}>
+                            {c.code}
                           </span>
-                          <span className="flex items-center gap-1">
-                            <div className="w-2 h-2 rounded-full bg-emerald-400" /> Online
-                          </span>
-                        </div>
+                        ))}
                       </div>
-                      <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 transition-colors flex-shrink-0 mt-2" />
+                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1"
+                        style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                        {proj.brief.title}
+                      </h3>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MessageCircle className="w-3.5 h-3.5" /> {msgCount} message{msgCount !== 1 ? 's' : ''}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded-full bg-emerald-400" /> Online
+                        </span>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 transition-colors flex-shrink-0 mt-2" />
                     </div>
                   </Link>
                 </motion.div>
               );
             })}
           </div>
-        </>
       )}
     </motion.div>
   );
