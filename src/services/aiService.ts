@@ -209,7 +209,7 @@ You must respond with ONLY valid JSON, no markdown, no backticks, no explanation
       "title": "string",
       "description": "string - what the student needs to accomplish",
       "dueDate": "YYYY-MM-DD",
-      "status": "upcoming",
+      "status": "todo",
       "estimatedHours": number,
       "deliverables": ["string - 2-4 specific deliverables for this milestone"]
     }
@@ -282,7 +282,7 @@ Generate the JSON now.`;
               title: (m.title as string) || `Milestone ${i + 1}`,
               description: (m.description as string) || '',
               dueDate: (m.dueDate as string) || '',
-              status: i === 0 ? 'in-progress' : 'upcoming',
+              status: i === 0 ? 'in-progress' : 'todo',
               estimatedHours: (m.estimatedHours as number) || 8,
               deliverables: Array.isArray(m.deliverables)
                 ? (m.deliverables as string[])

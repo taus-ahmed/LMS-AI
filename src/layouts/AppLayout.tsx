@@ -10,6 +10,8 @@ import {
   X,
   GraduationCap,
   ChevronRight,
+  Folder,
+  CalendarDays,
 } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
 import clsx from 'clsx';
@@ -18,6 +20,8 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/course', icon: BookOpen, label: 'Course Progress' },
   { to: '/project', icon: Rocket, label: 'My Project' },
+  { to: '/projects', icon: Folder, label: 'Project Library' },
+  { to: '/calendar', icon: CalendarDays, label: 'Milestone Calendar' },
   { to: '/mentor', icon: MessageCircle, label: 'AI Mentor' },
 ];
 

@@ -18,7 +18,7 @@ export interface Milestone {
   title: string;
   description: string;
   dueDate: string;
-  status: 'completed' | 'in-progress' | 'upcoming';
+  status: 'completed' | 'in-progress' | 'todo';
   estimatedHours: number;
   deliverables: string[];
 }

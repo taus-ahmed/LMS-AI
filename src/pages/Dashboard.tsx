@@ -43,7 +43,7 @@ export default function Dashboard() {
   const avgScore = Math.round(
     student.weekModules.filter((w) => w.score).reduce((acc, w) => acc + (w.score || 0), 0) / completedWeeks
   );
-  const nextMilestone = student.project?.milestones.find((m) => m.status === 'in-progress' || m.status === 'upcoming');
+  const nextMilestone = student.project?.milestones.find((m) => m.status === 'in-progress' || m.status === 'todo');
   const strongestSkill = [...student.skills].sort((a, b) => b.score - a.score)[0];
   const weakestSkill = [...student.skills].sort((a, b) => a.score - b.score)[0];
 
@@ -178,11 +178,11 @@ export default function Dashboard() {
                 </div>
                 <div className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium', {
                   'bg-amber-50 text-amber-700': nextMilestone.status === 'in-progress',
-                  'bg-slate-50 text-slate-600': nextMilestone.status === 'upcoming',
+                  'bg-slate-50 text-slate-600': nextMilestone.status === 'todo',
                 })}>
                   <div className={clsx('w-1.5 h-1.5 rounded-full', {
                     'bg-amber-500 animate-pulse': nextMilestone.status === 'in-progress',
-                    'bg-slate-400': nextMilestone.status === 'upcoming',
+                    'bg-slate-400': nextMilestone.status === 'todo',
                   })} />
                   {nextMilestone.status === 'in-progress' ? 'In Progress' : 'Upcoming'}
                 </div>

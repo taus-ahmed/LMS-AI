@@ -37,14 +37,15 @@ const item = {
 export default function ProjectHub() {
   const student = useStudentStore((s) => s.student);
   const isLoading = useStudentStore((s) => s.isLoading);
-  const setProject = useStudentStore((s) => s.setProject);
+  const activeProject = useStudentStore((s) => s.activeProject);
+  const createProjectFromGenerated = useStudentStore((s) => s.createProjectFromGenerated);
+  const archiveActiveIfUnused = useStudentStore((s) => s.archiveActiveIfUnused);
   const isGeneratingProject = useStudentStore((s) => s.isGeneratingProject);
   const setIsGeneratingProject = useStudentStore((s) => s.setIsGeneratingProject);
   const addMessage = useStudentStore((s) => s.addMessage);
 
-  const project = student?.project;
   const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
-    project?.milestones.find((m) => m.status === 'in-progress')?.id || null
+    activeProject?.brief.milestones.find((m) => m.status === 'in-progress')?.id || null
   );
   const [activeTab, setActiveTab] = useState<'brief' | 'requirements' | 'milestones'>(
     'brief'
@@ -90,7 +91,8 @@ export default function ProjectHub() {
     try {
       const generatedProject = await generateAIProject(student);
       clearInterval(stageInterval);
-      await setProject(generatedProject);
+      await archiveActiveIfUnused();
+      await createProjectFromGenerated(generatedProject);
 
       // Add a mentor message about the generated project
       await addMessage({
@@ -108,10 +110,10 @@ export default function ProjectHub() {
       setIsGeneratingProject(false);
       setGenStage('');
     }
-  }, [student, setProject, setIsGeneratingProject, addMessage]);
+  }, [student, archiveActiveIfUnused, createProjectFromGenerated, setIsGeneratingProject, addMessage]);
 
   // ─── No project yet: show generation UI ───
-  if (!project) {
+  if (!activeProject) {
     return (
       <motion.div
         variants={container}
@@ -284,10 +286,10 @@ export default function ProjectHub() {
   }
 
   // ─── Project exists: show full project dashboard ───
-  const completedMilestones = project.milestones.filter(
+  const completedMilestones = activeProject.brief.milestones.filter(
     (m) => m.status === 'completed'
   ).length;
-  const totalHoursCompleted = project.milestones
+  const totalHoursCompleted = activeProject.brief.milestones
     .filter((m) => m.status === 'completed')
     .reduce((acc, m) => acc + m.estimatedHours, 0);
 
@@ -325,28 +327,28 @@ export default function ProjectHub() {
             className="text-2xl sm:text-3xl font-bold mb-3"
             style={{ fontFamily: "'Space Grotesk', sans-serif" }}
           >
-            {project.title}
+            {activeProject.brief.title}
           </h1>
           <p className="text-slate-300 text-sm sm:text-base max-w-2xl leading-relaxed">
-            {project.context}
+            {activeProject.brief.context}
           </p>
           <div className="flex flex-wrap gap-4 mt-5">
             <div className="flex items-center gap-2 text-sm">
               <Target className="w-4 h-4 text-indigo-400" />
               <span className="text-slate-300">
-                {completedMilestones}/{project.milestones.length} Milestones
+                {completedMilestones}/{activeProject.brief.milestones.length} Milestones
               </span>
             </div>
             <div className="flex items-center gap-2 text-sm">
               <Clock className="w-4 h-4 text-amber-400" />
               <span className="text-slate-300">
-                ~{project.totalEstimatedHours}h Total Effort
+                ~{activeProject.brief.totalEstimatedHours}h Total Effort
               </span>
             </div>
             <div className="flex items-center gap-2 text-sm">
               <Package className="w-4 h-4 text-emerald-400" />
               <span className="text-slate-300">
-                {project.deliverables.length} Deliverables
+                {activeProject.brief.deliverables.length} Deliverables
               </span>
             </div>
           </div>
@@ -401,7 +403,7 @@ export default function ProjectHub() {
               </h3>
             </div>
             <p className="text-sm text-slate-700 leading-relaxed">
-              {project.problemStatement}
+              {activeProject.brief.problemStatement}
             </p>
           </div>
 
@@ -413,7 +415,7 @@ export default function ProjectHub() {
               Project Goals
             </h3>
             <div className="space-y-3">
-              {project.goals.map((goal, i) => (
+              {activeProject.brief.goals.map((goal, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center flex-shrink-0 text-xs font-bold mt-0.5">
                     {i + 1}
@@ -432,7 +434,7 @@ export default function ProjectHub() {
               Constraints
             </h3>
             <div className="grid sm:grid-cols-2 gap-2.5">
-              {project.constraints.map((constraint, i) => (
+              {activeProject.brief.constraints.map((constraint, i) => (
                 <div
                   key={i}
                   className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50/50 border border-rose-100"
@@ -452,7 +454,7 @@ export default function ProjectHub() {
               Final Deliverables
             </h3>
             <div className="grid sm:grid-cols-2 gap-2.5">
-              {project.deliverables.map((deliverable, i) => (
+              {activeProject.brief.deliverables.map((deliverable, i) => (
                 <div
                   key={i}
                   className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100"
@@ -478,7 +480,7 @@ export default function ProjectHub() {
             Technical Requirements
           </h3>
           <div className="space-y-3">
-            {project.technicalRequirements.map((req, i) => (
+            {activeProject.brief.technicalRequirements.map((req, i) => (
               <div
                 key={i}
                 className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors"
@@ -505,19 +507,19 @@ export default function ProjectHub() {
               </h3>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Clock className="w-3.5 h-3.5" />
-                {totalHoursCompleted}h / {project.totalEstimatedHours}h completed
+                {totalHoursCompleted}h / {activeProject.brief.totalEstimatedHours}h completed
               </div>
             </div>
 
             {/* Visual timeline */}
             <div className="flex items-center gap-1 mb-6">
-              {project.milestones.map((ms, i) => (
+              {activeProject.brief.milestones.map((ms, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
                   <div
                     className={clsx('w-full h-2 rounded-full', {
                       'bg-emerald-400': ms.status === 'completed',
                       'bg-indigo-400 animate-pulse': ms.status === 'in-progress',
-                      'bg-slate-200': ms.status === 'upcoming',
+                      'bg-slate-200': ms.status === 'todo',
                     })}
                   />
                   <span className="text-[10px] text-slate-400 hidden sm:block">
@@ -529,7 +531,7 @@ export default function ProjectHub() {
 
             {/* Milestone cards */}
             <div className="space-y-3">
-              {project.milestones.map((ms) => {
+              {activeProject.brief.milestones.map((ms) => {
                 const isExpanded = expandedMilestone === ms.id;
                 return (
                   <div
@@ -538,7 +540,7 @@ export default function ProjectHub() {
                       'border-emerald-200 bg-emerald-50/30': ms.status === 'completed',
                       'border-indigo-200 bg-indigo-50/30 shadow-sm':
                         ms.status === 'in-progress',
-                      'border-slate-200 bg-slate-50/30': ms.status === 'upcoming',
+                      'border-slate-200 bg-slate-50/30': ms.status === 'todo',
                     })}
                   >
                     <button
@@ -555,7 +557,7 @@ export default function ProjectHub() {
                               ms.status === 'completed',
                             'bg-indigo-100 text-indigo-600':
                               ms.status === 'in-progress',
-                            'bg-slate-100 text-slate-400': ms.status === 'upcoming',
+                            'bg-slate-100 text-slate-400': ms.status === 'todo',
                           }
                         )}
                       >
@@ -599,7 +601,7 @@ export default function ProjectHub() {
                               ms.status === 'completed',
                             'bg-indigo-100 text-indigo-700':
                               ms.status === 'in-progress',
-                            'bg-slate-100 text-slate-500': ms.status === 'upcoming',
+                            'bg-slate-100 text-slate-500': ms.status === 'todo',
                           }
                         )}
                       >

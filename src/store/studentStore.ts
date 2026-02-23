@@ -1,6 +1,18 @@
 import { create } from 'zustand';
 import type { StudentProfile, ChatMessage, ProjectBrief } from '../types/student';
-import { initializeDatabase, saveStudentProfile } from '../services/database';
+import {
+  initializeDatabase,
+  saveStudentProfile,
+  listProjects,
+  getProject,
+  createProject,
+  updateProject,
+  deleteProject,
+  getActiveProjectId,
+  setActiveProjectId,
+  type ProjectRecord,
+  type ProjectStatus,
+} from '../services/database';
 
 export const SIMULATED_STUDENT: StudentProfile = {
   name: 'Alex Morgan',
@@ -134,10 +146,45 @@ export const SIMULATED_STUDENT: StudentProfile = {
   notes: [],
 };
 
+// ---------------------------------------------------------------------------
+// Exported effective-status helper
+// ---------------------------------------------------------------------------
+export function getEffectiveStatus(project: ProjectRecord): ProjectStatus {
+  if (project.status === 'Archived') return 'Archived';
+  if (project.status === 'Dropped') return 'Dropped';
+
+  const milestones = project.brief?.milestones ?? [];
+  const total = milestones.length;
+  const completed = milestones.filter((m) => m.status === 'completed').length;
+
+  if (total > 0 && completed === total) return 'Finished';
+  if (completed > 0) return 'InProgress';
+  return 'NotStarted';
+}
+
+// ---------------------------------------------------------------------------
+// Small local helper (mirrors the one in database.ts)
+// ---------------------------------------------------------------------------
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return (
+    Math.random().toString(36).slice(2, 10) +
+    '-' +
+    Date.now().toString(36)
+  );
+}
+
 interface StudentStore {
   student: StudentProfile | null;
   isLoading: boolean;
   error: string | null;
+  // ---- multi-project state ----
+  projects: ProjectRecord[];
+  activeProjectId: string | null;
+  activeProject: ProjectRecord | null;
+  // ---- chat / UI ----
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => Promise<void>;
   setProject: (project: ProjectBrief) => Promise<void>;
   isGeneratingProject: boolean;
@@ -147,9 +194,20 @@ interface StudentStore {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   initialize: () => Promise<void>;
-  // New actions for notes
+  // ---- notes ----
   addNote: (note: string) => Promise<void>;
   removeNote: (index: number) => Promise<void>;
+  // ---- project inventory actions ----
+  loadProjects: () => Promise<void>;
+  loadActiveProject: () => Promise<void>;
+  setActiveProject: (id: string | null) => Promise<void>;
+  createProjectFromGenerated: (generated: ProjectBrief) => Promise<string>;
+  updateProjectStatus: (id: string, status: ProjectStatus) => Promise<void>;
+  resetProjectProgress: (id: string) => Promise<void>;
+  deleteProjectById: (id: string) => Promise<void>;
+  archiveActiveIfUnused: () => Promise<void>;
+  addProjectNote: (projectId: string, text: string) => Promise<void>;
+  deleteProjectNote: (projectId: string, noteId: string) => Promise<void>;
 }
 
 export const useStudentStore = create<StudentStore>((set, get) => ({
@@ -159,6 +217,10 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
   sidebarOpen: false,
   isGeneratingProject: false,
   isMentorTyping: false,
+  // ---- multi-project initial state ----
+  projects: [],
+  activeProjectId: null,
+  activeProject: null,
 
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 
@@ -170,12 +232,26 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       set({ isLoading: true, error: null });
       const studentData = await initializeDatabase();
       set({ student: studentData, isLoading: false });
+
+      // Hydrate project inventory
+      await get().loadProjects();
+      await get().loadActiveProject();
+
+      // If there is no active project but there are projects, pick the most
+      // recently updated one as the default active project
+      const { activeProjectId, projects } = get();
+      if (!activeProjectId && projects.length > 0) {
+        const sorted = [...projects].sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+        await get().setActiveProject(sorted[0].id);
+      }
     } catch (error) {
       console.error('Failed to initialize database:', error);
       set({
         error: 'Failed to load student data',
         isLoading: false,
-        student: SIMULATED_STUDENT // Fallback to hard-coded data
+        student: SIMULATED_STUDENT, // Fallback to hard-coded data
       });
     }
   },
@@ -238,5 +314,152 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
 
     set({ student: updatedStudent });
     await saveStudentProfile(updatedStudent);
+  },
+
+  // -------------------------------------------------------------------------
+  // Project inventory actions
+  // -------------------------------------------------------------------------
+
+  loadProjects: async () => {
+    const { student } = get();
+    if (!student) {
+      set({ projects: [] });
+      return;
+    }
+    const projects = await listProjects(student.studentId);
+    set({ projects });
+  },
+
+  loadActiveProject: async () => {
+    const id = await getActiveProjectId();
+    if (id === null) {
+      set({ activeProjectId: null, activeProject: null });
+      return;
+    }
+    const proj = await getProject(id);
+    if (!proj) {
+      // Stale reference — the project was deleted; clear it from settings too
+      await setActiveProjectId(null);
+      set({ activeProjectId: null, activeProject: null });
+    } else {
+      set({ activeProjectId: id, activeProject: proj });
+    }
+  },
+
+  setActiveProject: async (id) => {
+    await setActiveProjectId(id);
+    set({ activeProjectId: id });
+    if (id === null) {
+      set({ activeProject: null });
+    } else {
+      const proj = await getProject(id);
+      set({ activeProject: proj ?? null });
+    }
+  },
+
+  createProjectFromGenerated: async (generated) => {
+    const { student } = get();
+    if (!student) throw new Error('No student loaded');
+
+    const now = new Date().toISOString();
+    const record: ProjectRecord = {
+      id: generateId(),
+      studentId: student.studentId,
+      title: generated.title?.trim() || 'Industry Project',
+      status: 'NotStarted',
+      createdAt: now,
+      updatedAt: now,
+      brief: generated,
+    };
+
+    await createProject(record);
+    await get().setActiveProject(record.id);
+    await get().loadProjects();
+    return record.id;
+  },
+
+  updateProjectStatus: async (id, status) => {
+    await updateProject(id, { status });
+    await get().loadProjects();
+    if (get().activeProjectId === id) {
+      const proj = await getProject(id);
+      set({ activeProject: proj ?? null });
+    }
+  },
+
+  resetProjectProgress: async (id) => {
+    const proj = await getProject(id);
+    if (!proj) return;
+
+    const newBrief: typeof proj.brief = {
+      ...proj.brief,
+      milestones: proj.brief.milestones.map((m) => ({ ...m, status: 'todo' as const })),
+    };
+
+    await updateProject(id, { brief: newBrief, status: 'NotStarted' });
+    await get().loadProjects();
+    if (get().activeProjectId === id) {
+      const updated = await getProject(id);
+      set({ activeProject: updated ?? null });
+    }
+  },
+
+  deleteProjectById: async (id) => {
+    await deleteProject(id);
+    await get().loadProjects();
+
+    if (get().activeProjectId === id) {
+      const remaining = get().projects; // already refreshed above
+      const sorted = [...remaining].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+      if (sorted.length === 0) {
+        await get().setActiveProject(null);
+      } else {
+        await get().setActiveProject(sorted[0].id);
+      }
+    }
+  },
+
+  archiveActiveIfUnused: async () => {
+    const { activeProject } = get();
+    if (!activeProject) return;
+    if (getEffectiveStatus(activeProject) !== 'NotStarted') return;
+    await updateProject(activeProject.id, { status: 'Archived' });
+    await get().loadProjects();
+    // Refresh activeProject in store if it's still the active one
+    if (get().activeProjectId === activeProject.id) {
+      const updated = await getProject(activeProject.id);
+      set({ activeProject: updated ?? null });
+    }
+  },
+
+  addProjectNote: async (projectId, text) => {
+    const proj = await getProject(projectId);
+    if (!proj) return;
+    const notes = proj.notes ?? [];
+    const newNote = {
+      id: generateId(),
+      text,
+      createdAt: new Date().toISOString(),
+    };
+    await updateProject(projectId, { notes: [...notes, newNote] });
+    await get().loadProjects();
+    if (get().activeProjectId === projectId) {
+      const updated = await getProject(projectId);
+      set({ activeProject: updated ?? null });
+    }
+  },
+
+  deleteProjectNote: async (projectId, noteId) => {
+    const proj = await getProject(projectId);
+    if (!proj) return;
+    const notes = (proj.notes ?? []).filter((n) => n.id !== noteId);
+    await updateProject(projectId, { notes });
+    await get().loadProjects();
+    if (get().activeProjectId === projectId) {
+      const updated = await getProject(projectId);
+      set({ activeProject: updated ?? null });
+    }
   },
 }));

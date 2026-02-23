@@ -3,7 +3,9 @@ import AppLayout from './layouts/AppLayout';
 import Dashboard from './pages/Dashboard';
 import CourseProgress from './pages/CourseProgress';
 import ProjectHub from './pages/ProjectHub';
+import ProjectLibrary from './pages/ProjectLibrary';
 import Mentor from './pages/Mentor';
+import DeliverableCalendar from './pages/DeliverableCalendar';
 import { useStudentStore } from './store/studentStore';
 import { useEffect } from 'react';
 
@@ -21,7 +23,9 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/course" element={<CourseProgress />} />
           <Route path="/project" element={<ProjectHub />} />
+          <Route path="/projects" element={<ProjectLibrary />} />
           <Route path="/mentor" element={<Mentor />} />
+          <Route path="/calendar" element={<DeliverableCalendar />} />
         </Route>
       </Routes>
     </BrowserRouter>
