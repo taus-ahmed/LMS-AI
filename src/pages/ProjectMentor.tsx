@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useParams, Link, Navigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Send, Bot, User, Bell, MessageSquare, Lightbulb, ThumbsUp,
   Sparkles, ArrowLeft, Loader2, AlertCircle,
 } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
+import { useUnifiedProject, getUnifiedProjectById } from '../utils/projectAdapter';
 import { getMentorResponse } from '../services/aiService';
 import { COURSE_PROGRAMS } from '../data/coursePrograms';
 import type { ChatMessage } from '../types/student';
@@ -21,11 +22,13 @@ const quickPrompts = [
 export default function ProjectMentor() {
   const { projectId } = useParams<{ projectId: string }>();
   const student = useStudentStore((s) => s.student);
+  const isLoading = useStudentStore((s) => s.isLoading);
   const addProjectMessage = useStudentStore((s) => s.addProjectMessage);
   const mentorTypingId = useStudentStore((s) => s.mentorTypingProjectId);
   const setMentorTypingId = useStudentStore((s) => s.setMentorTypingProjectId);
 
-  const project = student.projects.find((p) => p.id === projectId);
+  // Unified view: brief + status from Dexie, chatHistory + courseIds from in-memory
+  const project = useUnifiedProject(projectId);
 
   const [inputValue, setInputValue] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +42,7 @@ export default function ProjectMentor() {
 
   const handleSend = useCallback(async (text?: string) => {
     const message = text || inputValue.trim();
-    if (!message || isTyping || !project || !projectId) return;
+    if (!message || isTyping || !project || !projectId || !student) return;
 
     setError(null);
     addProjectMessage(projectId, { role: 'student', content: message, type: 'text' });
@@ -47,8 +50,8 @@ export default function ProjectMentor() {
     setMentorTypingId(projectId);
 
     try {
-      // Get the LATEST project state (with the message we just added)
-      const latestProject = useStudentStore.getState().student.projects.find((p) => p.id === projectId);
+    // Get the LATEST merged project state (includes the message just added)
+      const latestProject = getUnifiedProjectById(projectId) ?? null;
       if (!latestProject) throw new Error('Project not found');
 
       const response = await getMentorResponse(student, latestProject, message);
@@ -66,7 +69,22 @@ export default function ProjectMentor() {
     }
   }, [inputValue, isTyping, project, projectId, student, addProjectMessage, setMentorTypingId]);
 
-  if (!project) return <Navigate to="/project" replace />;
+  if (isLoading || !student) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto" />
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <p className="text-slate-600 font-medium">Project not found for mentoring.</p>
+        <Link to="/project" className="text-sm text-indigo-600 hover:underline">← Back to My Projects</Link>
+      </div>
+    );
+  }
 
   const courses = project.selectedCourseIds
     .map((id) => COURSE_PROGRAMS.find((c) => c.id === id))
