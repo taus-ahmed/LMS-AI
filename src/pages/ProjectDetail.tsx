@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion';
-import { useParams, Link, Navigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import {
   Rocket, FileText, CheckCircle2, Circle, Clock, AlertTriangle,
   ChevronDown, ChevronUp, Target, Wrench, Package, Calendar, MessageCircle, ArrowLeft,
 } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
+import { useUnifiedProject } from '../utils/projectAdapter';
 import { COURSE_PROGRAMS } from '../data/coursePrograms';
 import clsx from 'clsx';
 import { useState } from 'react';
@@ -14,15 +15,31 @@ const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transiti
 
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
-  const student = useStudentStore((s) => s.student);
-  const project = student.projects.find((p) => p.id === projectId);
+  const isLoading = useStudentStore((s) => s.isLoading);
+  // Unified view: ProjectRecord (Dexie) merged with StudentProject (in-memory)
+  const project = useUnifiedProject(projectId);
 
   const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
     project?.brief.milestones.find((m) => m.status === 'in-progress')?.id ?? null
   );
   const [activeTab, setActiveTab] = useState<'brief' | 'requirements' | 'milestones'>('brief');
 
-  if (!project) return <Navigate to="/project" replace />;
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto" />
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <p className="text-slate-600 font-medium">Project not found.</p>
+        <Link to="/project" className="text-sm text-indigo-600 hover:underline">← Back to My Projects</Link>
+      </div>
+    );
+  }
 
   const brief = project.brief;
   const courses = project.selectedCourseIds
@@ -161,7 +178,7 @@ export default function ProjectDetail() {
                 <div className={clsx('w-full h-2 rounded-full', {
                   'bg-emerald-400': ms.status === 'completed',
                   'bg-indigo-400 animate-pulse': ms.status === 'in-progress',
-                  'bg-slate-200': ms.status === 'upcoming',
+                  'bg-slate-200': ms.status === 'todo',
                 })} />
                 <span className="text-[10px] text-slate-400 hidden sm:block">MS{i + 1}</span>
               </div>
@@ -174,13 +191,13 @@ export default function ProjectDetail() {
                 <div key={ms.id} className={clsx('rounded-xl border transition-all', {
                   'border-emerald-200 bg-emerald-50/30': ms.status === 'completed',
                   'border-indigo-200 bg-indigo-50/30 shadow-sm': ms.status === 'in-progress',
-                  'border-slate-200 bg-slate-50/30': ms.status === 'upcoming',
+                  'border-slate-200 bg-slate-50/30': ms.status === 'todo',
                 })}>
                   <button onClick={() => setExpandedMilestone(isExp ? null : ms.id)} className="w-full flex items-center gap-4 p-4 text-left">
                     <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', {
                       'bg-emerald-100 text-emerald-600': ms.status === 'completed',
                       'bg-indigo-100 text-indigo-600': ms.status === 'in-progress',
-                      'bg-slate-100 text-slate-400': ms.status === 'upcoming',
+                      'bg-slate-100 text-slate-400': ms.status === 'todo',
                     })}>
                       {ms.status === 'completed' ? <CheckCircle2 className="w-5 h-5" /> :
                         ms.status === 'in-progress' ? <div className="relative"><Circle className="w-5 h-5" /><div className="absolute inset-0 flex items-center justify-center"><div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" /></div></div> :
@@ -196,7 +213,7 @@ export default function ProjectDetail() {
                     <div className={clsx('px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide', {
                       'bg-emerald-100 text-emerald-700': ms.status === 'completed',
                       'bg-indigo-100 text-indigo-700': ms.status === 'in-progress',
-                      'bg-slate-100 text-slate-500': ms.status === 'upcoming',
+                      'bg-slate-100 text-slate-500': ms.status === 'todo',
                     })}>{ms.status === 'in-progress' ? 'Active' : ms.status}</div>
                     {isExp ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                   </button>
