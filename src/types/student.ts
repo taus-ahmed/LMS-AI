@@ -1,3 +1,5 @@
+// ─── Base Building Blocks ────────────────────────────────────────────
+
 export interface SkillArea {
   name: string;
   score: number; // 0-100
@@ -43,21 +45,49 @@ export interface ChatMessage {
   type?: 'text' | 'reminder' | 'feedback' | 'reflection';
 }
 
+// ─── Course Program (the catalog from which users pick) ──────────────
+
+export interface CourseProgram {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  color: string;           // tailwind color token e.g. 'indigo'
+  icon: string;            // lucide icon name
+  semester: string;
+  totalWeeks: number;
+  weekModules: WeekModule[];
+  skills: SkillArea[];
+}
+
+// ─── Student Project (one per generation, owns its own mentor) ───────
+
+export interface StudentProject {
+  id: string;
+  createdAt: string;
+  selectedCourseIds: string[];   // which courses from the catalog were combined
+  brief: ProjectBrief;
+  chatHistory: ChatMessage[];    // per-project mentor conversation
+}
+
+// ─── Student Profile ────────────────────────────────────────────────
+
 export interface StudentProfile {
   name: string;
   studentId: string;
-  course: string;
-  courseCode: string;
   semester: string;
   currentWeek: number;
-  totalWeeks: number;
   overallProgress: number;
   gpa: number;
+  // Per-student skill/module tracking (used by Dashboard, ProjectHub, CourseProgress)
   skills: SkillArea[];
   weekModules: WeekModule[];
-  project: ProjectBrief | null;
-  projectUnlocked: boolean;
-  chatHistory: ChatMessage[];
-  // New field example
-  notes?: string[]; // Array of personal notes
+  // Multi-course enrollment + project list (teammate branch)
+  enrolledCourseIds: string[];   // which courses the student is taking
+  projects: StudentProject[];    // all generated projects (multi-project support)
+  // Legacy single-project fields kept for database migration compatibility
+  project?: ProjectBrief | null;
+  projectUnlocked?: boolean;
+  chatHistory?: ChatMessage[];   // top-level chat; per-project chat lives in StudentProject
+  notes?: string[];              // personal notes
 }

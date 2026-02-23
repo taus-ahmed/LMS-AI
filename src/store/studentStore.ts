@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { StudentProfile, ChatMessage, ProjectBrief } from '../types/student';
+import type { StudentProfile, StudentProject, ChatMessage, ProjectBrief } from '../types/student';
 import {
   initializeDatabase,
   saveStudentProfile,
@@ -14,16 +14,19 @@ import {
   type ProjectStatus,
 } from '../services/database';
 
+// ---------------------------------------------------------------------------
+// Simulated / seed student (exported – imported by database.ts for first-run)
+// Contains fields from both branches to satisfy the merged StudentProfile.
+// ---------------------------------------------------------------------------
+
 export const SIMULATED_STUDENT: StudentProfile = {
   name: 'Alex Morgan',
   studentId: 'ENG-2026-0482',
-  course: 'Introduction to Mechatronics Engineering',
-  courseCode: 'MECH 301',
   semester: 'Spring 2026',
   currentWeek: 6,
-  totalWeeks: 14,
   overallProgress: 42,
   gpa: 3.4,
+  // ── Per-student skill / module tracking (HEAD) ──
   skills: [
     { name: 'Circuit Design', score: 78, trend: 'up' },
     { name: 'Programming (C/C++)', score: 85, trend: 'up' },
@@ -142,8 +145,10 @@ export const SIMULATED_STUDENT: StudentProfile = {
       type: 'text',
     },
   ],
-  // New field with default value
   notes: [],
+  // ── Multi-course enrollment + in-memory project list (teammate branch) ──
+  enrolledCourseIds: ['mech301', 'ece420', 'cse460', 'me544'],
+  projects: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -176,28 +181,49 @@ function generateId(): string {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Store interface – merged from both branches
+// ---------------------------------------------------------------------------
+
 interface StudentStore {
+  // ── Core student state ──
   student: StudentProfile | null;
   isLoading: boolean;
   error: string | null;
-  // ---- multi-project state ----
+
+  // ── Dexie-backed project inventory (ProjectLibrary / DeliverableCalendar) ──
   projects: ProjectRecord[];
   activeProjectId: string | null;
   activeProject: ProjectRecord | null;
-  // ---- chat / UI ----
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => Promise<void>;
-  setProject: (project: ProjectBrief) => Promise<void>;
-  isGeneratingProject: boolean;
-  setIsGeneratingProject: (val: boolean) => void;
-  isMentorTyping: boolean;
-  setIsMentorTyping: (val: boolean) => void;
+
+  // ── UI / loading flags ──
   sidebarOpen: boolean;
+  isGeneratingProject: boolean;
+  /** Global mentor page typing indicator (Mentor.tsx) */
+  isMentorTyping: boolean;
+  /** Per-project mentor typing indicator (ProjectMentor.tsx) */
+  mentorTypingProjectId: string | null;
+
+  // ── UI actions ──
   toggleSidebar: () => void;
+  setIsGeneratingProject: (val: boolean) => void;
+  setIsMentorTyping: (val: boolean) => void;
+  setMentorTypingProjectId: (id: string | null) => void;
+
+  // ── Initialization ──
   initialize: () => Promise<void>;
-  // ---- notes ----
+
+  // ── Global mentor chat (Mentor.tsx – writes to student.chatHistory) ──
+  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => Promise<void>;
+
+  // ── Legacy single-project helpers ──
+  setProject: (project: ProjectBrief) => Promise<void>;
+
+  // ── Student profile notes ──
   addNote: (note: string) => Promise<void>;
   removeNote: (index: number) => Promise<void>;
-  // ---- project inventory actions ----
+
+  // ── Dexie project inventory actions (ProjectLibrary / Calendar) ──
   loadProjects: () => Promise<void>;
   loadActiveProject: () => Promise<void>;
   setActiveProject: (id: string | null) => Promise<void>;
@@ -208,30 +234,53 @@ interface StudentStore {
   archiveActiveIfUnused: () => Promise<void>;
   addProjectNote: (projectId: string, text: string) => Promise<void>;
   deleteProjectNote: (projectId: string, noteId: string) => Promise<void>;
+
+  // ── In-memory StudentProject actions (ProjectHub / ProjectMentor) ──
+  /** Creates a StudentProject inside student.projects (in-memory + persisted) */
+  addProject: (courseIds: string[], brief: ProjectBrief) => string;
+  /** Removes a StudentProject from student.projects by id */
+  deleteProject: (projectId: string) => void;
+  /** Appends a chat message to a specific StudentProject's chatHistory */
+  addProjectMessage: (projectId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
 }
 
+// ---------------------------------------------------------------------------
+// Store implementation
+// ---------------------------------------------------------------------------
+
 export const useStudentStore = create<StudentStore>((set, get) => ({
+  // ── Initial state ──
   student: null,
   isLoading: true,
   error: null,
   sidebarOpen: false,
   isGeneratingProject: false,
   isMentorTyping: false,
-  // ---- multi-project initial state ----
+  mentorTypingProjectId: null,
   projects: [],
   activeProjectId: null,
   activeProject: null,
 
-  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 
   setIsGeneratingProject: (val) => set({ isGeneratingProject: val }),
   setIsMentorTyping: (val) => set({ isMentorTyping: val }),
+  setMentorTypingProjectId: (id) => set({ mentorTypingProjectId: id }),
 
   initialize: async () => {
     try {
       set({ isLoading: true, error: null });
       const studentData = await initializeDatabase();
-      set({ student: studentData, isLoading: false });
+
+      // Ensure fields introduced by the teammate branch always exist on the
+      // profile even when the record was written by an older DB schema version.
+      const hydrated: StudentProfile = {
+        ...studentData,
+        enrolledCourseIds: studentData.enrolledCourseIds ?? [],
+        projects: studentData.projects ?? [],
+      };
+
+      set({ student: hydrated, isLoading: false });
 
       // Hydrate project inventory
       await get().loadProjects();
@@ -268,7 +317,7 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
 
     const updatedStudent = {
       ...state.student,
-      chatHistory: [...state.student.chatHistory, newMessage],
+      chatHistory: [...(state.student.chatHistory ?? []), newMessage],
     };
 
     set({ student: updatedStudent });
@@ -461,5 +510,84 @@ export const useStudentStore = create<StudentStore>((set, get) => ({
       const updated = await getProject(projectId);
       set({ activeProject: updated ?? null });
     }
+  },
+
+  // ---------------------------------------------------------------------------
+  // In-memory StudentProject actions (ProjectHub / ProjectMentor)
+  // These write to student.projects (StudentProject[]) on the profile object.
+  // ---------------------------------------------------------------------------
+
+  addProject: (courseIds, brief) => {
+    const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newProject: StudentProject = {
+      id,
+      createdAt: new Date().toISOString(),
+      selectedCourseIds: courseIds,
+      brief,
+      chatHistory: [
+        {
+          id: `msg-welcome-${id}`,
+          role: 'mentor',
+          content: `Welcome! 🎓 I'm the dedicated AI Mentor for your project **"${brief.title}"**.\n\nI have full context on the courses this project was generated from, every milestone, and all your skill scores. I can only help with topics relevant to this specific project — that's by design, so my answers stay precise and grounded.\n\nAsk me anything: requirements clarification, concept explanations, milestone guidance, or engineering trade-offs. What would you like to start with?`,
+          timestamp: new Date().toISOString(),
+          type: 'text',
+        },
+      ],
+    };
+
+    set((s) => {
+      if (!s.student) return {};
+      return {
+        student: {
+          ...s.student,
+          projects: [...s.student.projects, newProject],
+        },
+      };
+    });
+
+    // Persist updated student (fire-and-forget)
+    const updated = get().student;
+    if (updated) saveStudentProfile(updated).catch(console.error);
+
+    return id;
+  },
+
+  deleteProject: (projectId) => {
+    set((s) => {
+      if (!s.student) return {};
+      return {
+        student: {
+          ...s.student,
+          projects: s.student.projects.filter((p) => p.id !== projectId),
+        },
+      };
+    });
+    const updated = get().student;
+    if (updated) saveStudentProfile(updated).catch(console.error);
+  },
+
+  addProjectMessage: (projectId, message) => {
+    const newMsg: ChatMessage = {
+      ...message,
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString(),
+    };
+
+    set((s) => {
+      if (!s.student) return {};
+      return {
+        student: {
+          ...s.student,
+          projects: s.student.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, chatHistory: [...p.chatHistory, newMsg] }
+              : p
+          ),
+        },
+      };
+    });
+
+    const updated = get().student;
+    if (updated) saveStudentProfile(updated).catch(console.error);
   },
 }));

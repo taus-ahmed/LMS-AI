@@ -101,17 +101,15 @@ export default function DeliverableCalendar() {
       if (effectiveStatus === 'Finished' || effectiveStatus === 'Dropped') continue;
 
       // Resolve course chips: prefer project-level fields, fall back to student profile
-      const projAny = project as Record<string, unknown>;
-      const briefAny = (project.brief ?? {}) as Record<string, unknown>;
+      const projAny = (project as unknown) as Record<string, unknown>;
+      const briefAny = ((project.brief ?? {}) as unknown) as Record<string, unknown>;
       let courses: string[] = [];
       if (Array.isArray(briefAny['courses']) && (briefAny['courses'] as unknown[]).length > 0) {
         courses = (briefAny['courses'] as unknown[]).map(String);
       } else if (Array.isArray(projAny['courses']) && (projAny['courses'] as unknown[]).length > 0) {
         courses = (projAny['courses'] as unknown[]).map(String);
-      } else if (student?.courseCode) {
-        courses = [student.courseCode];
-      } else if (student?.course) {
-        courses = [student.course];
+      } else if (student?.enrolledCourseIds?.length) {
+        courses = student.enrolledCourseIds;
       }
 
       const milestones = project.brief?.milestones ?? [];

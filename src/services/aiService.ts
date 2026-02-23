@@ -1,12 +1,8 @@
-// src/services/aiService.ts
-// ─── Groq LLM Integration Service ────────────────────────────────────
-// Handles all AI communication for the AdaptLearn LMS platform.
-// Uses Llama 3 70B via Groq for fast inference.
-
-import type { StudentProfile, ProjectBrief, Milestone } from '../types/student';
+import type { StudentProfile, StudentProject, ProjectBrief, Milestone, CourseProgram } from '../types/student';
+import { getCoursesByIds } from '../data/coursePrograms';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY?.trim();
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 const MODEL = 'llama-3.3-70b-versatile';
 
 interface GroqMessage {
@@ -14,204 +10,158 @@ interface GroqMessage {
   content: string;
 }
 
-async function callGroq(
-  messages: GroqMessage[],
-  temperature: number = 0.7,
-  maxTokens: number = 2048
-): Promise<string> {
+async function callGroq(messages: GroqMessage[], temperature = 0.7, maxTokens = 2048): Promise<string> {
   if (!GROQ_API_KEY) {
-    throw new Error('Missing Groq API key. Set VITE_GROQ_API_KEY in your environment.');
+    throw new Error('Missing VITE_GROQ_API_KEY environment variable');
   }
 
-  const response = await fetch(GROQ_API_URL, {
+  const res = await fetch(GROQ_API_URL, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
+    headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: MODEL, messages, temperature, max_tokens: maxTokens, stream: false }),
   });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('Groq API error:', response.status, errorBody);
-    throw new Error(`Groq API error: ${response.status}`);
+  if (!res.ok) {
+    const body = await res.text();
+    console.error('Groq API error:', res.status, body);
+    throw new Error(`Groq API ${res.status}`);
   }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? '';
 }
 
-// ─── Build context about the student for system prompts ──────────────
-function buildStudentContext(student: StudentProfile): string {
-  const completedModules = student.weekModules
-    .filter((w) => w.status === 'completed')
-    .map((w) => `  - Week ${w.week}: ${w.title} (Score: ${w.score}%) — Topics: ${w.topics.join(', ')}`)
-    .join('\n');
+// ─── Helpers to serialise course data into text for the LLM ──────────
 
-  const currentModule = student.weekModules.find((w) => w.status === 'current');
-  const upcomingModules = student.weekModules
-    .filter((w) => w.status === 'locked')
-    .map((w) => `  - Week ${w.week}: ${w.title} — Topics: ${w.topics.join(', ')}`)
-    .join('\n');
+function serialiseCourses(courses: CourseProgram[]): string {
+  return courses.map((c) => {
+    const completed = c.weekModules.filter((w) => w.status === 'completed');
+    const current = c.weekModules.find((w) => w.status === 'current');
+    return `
+COURSE: ${c.code} — ${c.title}
+  Description: ${c.description}
+  Completed modules (${completed.length}/${c.totalWeeks}):
+${completed.map((w) => `    Week ${w.week}: ${w.title} (Score: ${w.score ?? 'N/A'}%) — Topics: ${w.topics.join(', ')}`).join('\n')}
+  Current module: Week ${current?.week ?? '?'}: ${current?.title ?? 'N/A'} — Topics: ${current?.topics.join(', ') ?? 'N/A'}
+  Skills:
+${c.skills.map((s) => `    ${s.name}: ${s.score}/100 (${s.trend})`).join('\n')}
+  Strong areas: ${c.skills.filter((s) => s.score >= 75).map((s) => s.name).join(', ') || 'none'}
+  Weak areas: ${c.skills.filter((s) => s.score < 65).map((s) => s.name).join(', ') || 'none'}`;
+  }).join('\n\n');
+}
 
-  const skills = student.skills
-    .map((s) => `  - ${s.name}: ${s.score}/100 (trend: ${s.trend})`)
-    .join('\n');
-
-  const strongSkills = student.skills
-    .filter((s) => s.score >= 75)
-    .map((s) => s.name)
-    .join(', ');
-
-  const weakSkills = student.skills
-    .filter((s) => s.score < 65)
-    .map((s) => s.name)
-    .join(', ');
-
+function serialiseProject(project: StudentProject, courses: CourseProgram[]): string {
+  const courseNames = courses.map((c) => `${c.code} (${c.title})`).join(' + ');
+  const b = project.brief;
   return `
-STUDENT PROFILE:
-  Name: ${student.name}
-  ID: ${student.studentId}
-  Course: ${student.course} (${student.courseCode})
-  Semester: ${student.semester}
-  Current Week: ${student.currentWeek} of ${student.totalWeeks}
-  Overall Progress: ${student.overallProgress}%
-  GPA: ${student.gpa}
-
-SKILL PROFICIENCY:
-${skills}
-  Strongest areas: ${strongSkills || 'N/A'}
-  Weakest areas: ${weakSkills || 'N/A'}
-
-COMPLETED MODULES:
-${completedModules}
-
-CURRENT MODULE:
-  Week ${currentModule?.week}: ${currentModule?.title} — Topics: ${currentModule?.topics.join(', ')}
-
-UPCOMING MODULES (syllabus preview):
-${upcomingModules}
-`.trim();
+PROJECT: "${b.title}"
+  ID: ${project.id}
+  Created: ${project.createdAt}
+  Courses combined: ${courseNames}
+  Problem Statement: ${b.problemStatement}
+  Goals: ${b.goals.map((g, i) => `\n    ${i + 1}. ${g}`).join('')}
+  Technical Requirements: ${b.technicalRequirements.map((r, i) => `\n    ${i + 1}. ${r}`).join('')}
+  Constraints: ${b.constraints.join('; ')}
+  Deliverables: ${b.deliverables.join('; ')}
+  Milestones:
+${b.milestones.map((m) => `    - ${m.title} (${m.status}) due ${m.dueDate}, ~${m.estimatedHours}h — deliverables: ${m.deliverables.join(', ')}`).join('\n')}
+  Total estimated hours: ${b.totalEstimatedHours}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// MENTOR CHAT — Real-time conversational AI
+// PROJECT-SCOPED MENTOR
 // ═══════════════════════════════════════════════════════════════════════
-
-const MENTOR_SYSTEM_PROMPT = `You are the AI Project Mentor for AdaptLearn, an adaptive learning management system for engineering students. Your name is "Mentor AI" and you guide students through their coursework and personalized industry projects.
-
-YOUR ROLE & PERSONALITY:
-- You are a supportive, knowledgeable engineering mentor with industry experience.
-- You use the Socratic method — guide students to discover answers rather than giving direct solutions.
-- You are warm but professional, encouraging but honest about gaps.
-- You ask reflective questions to deepen understanding.
-- You connect theoretical concepts to real-world engineering practice.
-- You proactively remind students about upcoming milestones and deadlines.
-- Keep responses concise (2-4 paragraphs max). Don't write essays.
-
-YOUR CAPABILITIES:
-- Clarify project requirements and expectations
-- Guide students through engineering design decisions
-- Explain technical concepts from the course syllabus
-- Provide milestone-aligned feedback and reminders
-- Help students think through trade-offs (not give answers)
-- Encourage documentation of engineering decisions
-- Suggest resources and approaches for weak areas
-
-RULES:
-- NEVER write code or give complete solutions. Guide the thinking process.
-- ALWAYS relate advice back to their specific course content and skill levels.
-- When a student is struggling (low scores in a skill), be extra supportive and break things into smaller steps.
-- When a student excels, challenge them with deeper questions and stretch goals.
-- Reference specific weeks/modules from their coursework when relevant.
-- If the student has a project, reference its milestones and deliverables.
-- Use markdown-like formatting sparingly: use **bold** for emphasis, bullet points for lists.`;
 
 export async function getMentorResponse(
   student: StudentProfile,
+  project: StudentProject,
   userMessage: string,
-  conversationHistory: { role: 'user' | 'assistant'; content: string }[]
 ): Promise<string> {
-  const studentContext = buildStudentContext(student);
+  const courses = getCoursesByIds(project.selectedCourseIds);
+  const courseData = serialiseCourses(courses);
+  const projectData = serialiseProject(project, courses);
 
-  const projectContext = student.project
-    ? `
-CURRENT PROJECT: "${student.project.title}"
-  Problem: ${student.project.problemStatement}
-  Milestones:
-${student.project.milestones.map((m) => `    - ${m.title} (${m.status}) — Due: ${m.dueDate}, ~${m.estimatedHours}h`).join('\n')}
-  Total estimated hours: ${student.project.totalEstimatedHours}h
-  Deliverables: ${student.project.deliverables.join(', ')}
-`
-    : '\nPROJECT: Not yet generated.';
+  const systemPrompt = `You are the dedicated AI Mentor for the project "${project.brief.title}". You are bound EXCLUSIVELY to this one project and the courses it was generated from. You have deep knowledge of the specific syllabus content, skill scores, and milestones listed below.
 
-  const systemMessage = `${MENTOR_SYSTEM_PROMPT}
+STRICT RULES — NEVER VIOLATE:
+1. You ONLY discuss topics directly relevant to THIS project and ITS source courses listed below. If the user asks about something outside the scope of these courses, politely redirect them back to the project.
+2. You NEVER invent information. Every technical fact you cite must be traceable to the course topics, skills, or project requirements listed in your context. If you're unsure, say so.
+3. You NEVER write complete code solutions or give direct answers. You are Socratic — ask guiding questions, break problems into steps, point to relevant course weeks.
+4. Reference specific course modules (by week number and title) when helping the user.
+5. Reference specific milestones (by name and due date) when discussing timelines.
+6. When the student has a weak skill (<65%), break guidance into smaller steps and offer encouragement.
+7. When the student has a strong skill (≥80%), push with deeper questions and stretch challenges.
+8. Keep responses concise: 1-3 paragraphs. No essays.
 
-${studentContext}
-${projectContext}
+STUDENT: ${student.name} (${student.studentId}), GPA ${student.gpa}
 
-Today's date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
+SOURCE COURSES:
+${courseData}
 
-  // Build message history (keep last 10 exchanges for context window)
-  const recentHistory = conversationHistory.slice(-20);
+THIS PROJECT:
+${projectData}
+
+Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
+
+  // Build message array from this project's chat history (last 20 msgs)
+  const recent = project.chatHistory.slice(-20);
   const messages: GroqMessage[] = [
-    { role: 'system', content: systemMessage },
-    ...recentHistory.map((msg) => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
+    { role: 'system', content: systemPrompt },
+    ...recent.map((m) => ({
+      role: (m.role === 'student' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: m.content,
     })),
     { role: 'user', content: userMessage },
   ];
 
-  try {
-    const response = await callGroq(messages, 0.7, 1024);
-    return response;
-  } catch (error) {
-    console.error('Mentor AI error:', error);
-    throw error;
-  }
+  return callGroq(messages, 0.7, 1024);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// PROJECT GENERATION — AI-curated industry project
+// AI PROJECT GENERATION (multi-course)
 // ═══════════════════════════════════════════════════════════════════════
 
-const PROJECT_GEN_SYSTEM_PROMPT = `You are an expert engineering curriculum designer and industry project architect. Your job is to generate a personalized, industry-grade project brief for an engineering student based on their course syllabus, demonstrated competencies, and skill gaps.
+export async function generateAIProject(
+  student: StudentProfile,
+  selectedCourseIds: string[],
+): Promise<ProjectBrief> {
+  const courses = getCoursesByIds(selectedCourseIds);
+  const courseData = serialiseCourses(courses);
 
-The project MUST:
-1. Be realistic — modeled after actual industry problems
-2. Be achievable within the remaining weeks of the semester
-3. Challenge the student's weak areas while leveraging their strengths
-4. Directly apply concepts from the completed course modules
-5. Include professional deliverables (reports, schematics, code, presentations)
-6. Have clear milestones with estimated hours
+  const allSkills = courses.flatMap((c) => c.skills);
+  const weak = allSkills.filter((s) => s.score < 65).map((s) => `${s.name} (${s.score}%)`);
+  const strong = allSkills.filter((s) => s.score >= 75).map((s) => `${s.name} (${s.score}%)`);
 
-You must respond with ONLY valid JSON, no markdown, no backticks, no explanation. The JSON must match this exact structure:
+  const maxWeeksLeft = Math.max(...courses.map((c) => c.totalWeeks - (c.weekModules.filter((w) => w.status === 'completed').length)));
+  const today = new Date();
 
+  const systemPrompt = `You are an expert engineering curriculum designer. Generate a personalized, industry-grade project brief that COMBINES knowledge from ALL the courses listed below into ONE integrated project.
+
+CRITICAL REQUIREMENTS:
+1. The project MUST integrate concepts from EVERY selected course. Not just one — ALL of them combined.
+2. It must be realistic, modeled after actual industry or research problems.
+3. It must be achievable within ${maxWeeksLeft} remaining weeks.
+4. Weak skill areas (${weak.join(', ') || 'none'}) should receive scaffolded support in early milestones.
+5. Strong skill areas (${strong.join(', ') || 'none'}) should be leveraged and challenged with stretch goals.
+6. Every goal, requirement, and milestone must be traceable to specific course weeks and topics listed below. Do NOT invent topics that are not in the syllabus.
+7. Milestones should build sequentially and reference actual course content.
+
+Respond with ONLY valid JSON — no markdown, no backticks, no explanation text. The JSON schema:
 {
-  "title": "string - compelling project title",
-  "context": "string - 2-3 sentence industry scenario that motivates the project",
-  "problemStatement": "string - clear engineering problem statement (3-4 sentences)",
-  "goals": ["string - 4-6 specific learning/engineering goals tied to course modules"],
-  "constraints": ["string - 4-6 realistic project constraints (budget, size, power, etc.)"],
-  "technicalRequirements": ["string - 6-8 specific technical requirements"],
-  "deliverables": ["string - 5-7 professional deliverables"],
+  "title": "string",
+  "context": "string (2-3 sentence industry scenario)",
+  "problemStatement": "string (3-4 sentences)",
+  "goals": ["string (reference specific course weeks)"],
+  "constraints": ["string"],
+  "technicalRequirements": ["string"],
+  "deliverables": ["string"],
   "milestones": [
     {
       "id": "ms-1",
       "title": "string",
-      "description": "string - what the student needs to accomplish",
+      "description": "string",
       "dueDate": "YYYY-MM-DD",
       "status": "todo",
       "estimatedHours": number,
-      "deliverables": ["string - 2-4 specific deliverables for this milestone"]
+      "deliverables": ["string"]
     }
   ],
   "totalEstimatedHours": number
@@ -225,83 +175,54 @@ IMPORTANT:
 - Total estimated hours should be 40-60 hours depending on complexity
 - Due dates should start from next week and be spaced 1-2 weeks apart`;
 
-export async function generateAIProject(student: StudentProfile): Promise<ProjectBrief> {
-  const studentContext = buildStudentContext(student);
+  const userPrompt = `Generate a project for student ${student.name} (GPA ${student.gpa}) combining these courses:
 
-  const remainingWeeks = student.totalWeeks - student.currentWeek;
-  const today = new Date();
+${courseData}
 
-  const userPrompt = `Generate a personalized industry-grade project for this student.
-
-${studentContext}
-
-IMPORTANT CONTEXT:
-- There are ${remainingWeeks} weeks remaining in the semester
-- Today's date is ${today.toISOString().split('T')[0]}
-- Milestones should have due dates starting from ${new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-- Space milestones approximately 7-10 days apart
-- The project must integrate concepts from their COMPLETED modules (Weeks 1 through ${student.currentWeek - 1})
-- Pay special attention to weak skills: ${student.skills.filter((s) => s.score < 65).map((s) => `${s.name} (${s.score}%)`).join(', ') || 'none identified'}
-- Leverage strong skills: ${student.skills.filter((s) => s.score >= 75).map((s) => `${s.name} (${s.score}%)`).join(', ') || 'none identified'}
-- The student's GPA is ${student.gpa}, calibrate difficulty accordingly
-
-Generate the JSON now.`;
-
-  const messages: GroqMessage[] = [
-    { role: 'system', content: PROJECT_GEN_SYSTEM_PROMPT },
-    { role: 'user', content: userPrompt },
-  ];
+Due dates should start from ${new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0]} and be spaced 7-10 days apart.
+Generate 5-6 milestones. Total hours: 40-60.
+The project must meaningfully integrate concepts from all ${courses.length} course(s): ${courses.map((c) => c.code).join(', ')}.`;
 
   try {
-    const raw = await callGroq(messages, 0.6, 3000);
+    const raw = await callGroq(
+      [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      0.6,
+      3000,
+    );
 
-    // Parse JSON from the response — handle possible markdown wrapping
     let jsonStr = raw.trim();
-    // Strip markdown code blocks if present
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
-    }
+    if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
 
     const parsed = JSON.parse(jsonStr);
 
-    // Validate and normalize the response
-    const project: ProjectBrief = {
-      title: parsed.title || 'AI-Generated Engineering Project',
-      context: parsed.context || '',
-      problemStatement: parsed.problemStatement || '',
+    const brief: ProjectBrief = {
+      title: parsed.title ?? 'AI-Generated Project',
+      context: parsed.context ?? '',
+      problemStatement: parsed.problemStatement ?? '',
       goals: Array.isArray(parsed.goals) ? parsed.goals : [],
       constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
-      technicalRequirements: Array.isArray(parsed.technicalRequirements)
-        ? parsed.technicalRequirements
-        : [],
+      technicalRequirements: Array.isArray(parsed.technicalRequirements) ? parsed.technicalRequirements : [],
       deliverables: Array.isArray(parsed.deliverables) ? parsed.deliverables : [],
       milestones: Array.isArray(parsed.milestones)
-        ? parsed.milestones.map(
-            (m: Record<string, unknown>, i: number): Milestone => ({
-              id: (m.id as string) || `ms-${i + 1}`,
-              title: (m.title as string) || `Milestone ${i + 1}`,
-              description: (m.description as string) || '',
-              dueDate: (m.dueDate as string) || '',
-              status: i === 0 ? 'in-progress' : 'todo',
-              estimatedHours: (m.estimatedHours as number) || 8,
-              deliverables: Array.isArray(m.deliverables)
-                ? (m.deliverables as string[])
-                : [],
-            })
-          )
+        ? parsed.milestones.map((m: Record<string, unknown>, i: number): Milestone => ({
+            id: String(m.id ?? `ms-${i + 1}`),
+            title: String(m.title ?? `Milestone ${i + 1}`),
+            description: String(m.description ?? ''),
+            dueDate: String(m.dueDate ?? ''),
+            // First milestone is immediately active; all others start as todo.
+            // 'upcoming' is not a valid status — use 'todo' instead.
+            status: i === 0 ? 'in-progress' : 'todo',
+            estimatedHours: Number(m.estimatedHours) || 8,
+            deliverables: Array.isArray(m.deliverables) ? (m.deliverables as string[]) : [],
+          }))
         : [],
-      totalEstimatedHours:
-        parsed.totalEstimatedHours ||
+      totalEstimatedHours: Number(parsed.totalEstimatedHours) ||
         (Array.isArray(parsed.milestones)
-          ? parsed.milestones.reduce(
-              (sum: number, m: Record<string, unknown>) =>
-                sum + ((m.estimatedHours as number) || 8),
-              0
-            )
+          ? parsed.milestones.reduce((s: number, m: Record<string, unknown>) => s + (Number(m.estimatedHours) || 8), 0)
           : 50),
     };
 
-    return project;
+    return brief;
   } catch (error) {
     console.error('Project generation error:', error);
     throw error;
