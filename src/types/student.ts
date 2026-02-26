@@ -23,6 +23,11 @@ export interface Milestone {
   status: 'completed' | 'in-progress' | 'upcoming';
   estimatedHours: number;
   deliverables: string[];
+  difficulty?: number; // 1-5
+  durationDays?: number;
+  rationale?: string;
+  learningResources?: string[];
+  skillCoverage?: string[];
 }
 
 export interface ProjectBrief {

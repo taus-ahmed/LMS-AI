@@ -6,7 +6,7 @@ import {
   Sparkles, ArrowLeft, Loader2, AlertCircle,
 } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
-import { getMentorResponse } from '../services/aiService';
+import { getMentorResponse, getAIErrorMessage } from '../services/aiService';
 import { COURSE_PROGRAMS } from '../data/coursePrograms';
 import type { ChatMessage } from '../types/student';
 import clsx from 'clsx';
@@ -55,10 +55,11 @@ export default function ProjectMentor() {
       addProjectMessage(projectId, { role: 'mentor', content: response, type: 'text' });
     } catch (err) {
       console.error('Mentor error:', err);
-      setError('Failed to get AI response. Please try again.');
+      const message = getAIErrorMessage(err, 'Failed to get AI response.');
+      setError(message);
       addProjectMessage(projectId, {
         role: 'mentor',
-        content: "I'm having trouble connecting right now. Please try again in a moment.",
+        content: `I'm having trouble responding right now. ${message}`,
         type: 'text',
       });
     } finally {

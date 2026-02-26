@@ -11,6 +11,7 @@ import {
   GraduationCap,
   ChevronRight,
   FolderOpen,
+  Settings,
 } from 'lucide-react';
 import { useStudentStore } from '../store/studentStore';
 import clsx from 'clsx';
@@ -117,9 +118,27 @@ export default function AppLayout() {
           ))}
         </nav>
 
-        <div className="px-6 py-4 border-t border-white/10">
-          <p className="text-slate-500 text-xs">{student.semester}</p>
-          <p className="text-slate-400 text-xs mt-0.5">Week {student.currentWeek} of 14</p>
+        <div className="px-6 py-4 border-t border-white/10 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-slate-500 text-xs">{student.semester}</p>
+            <p className="text-slate-400 text-xs mt-0.5">Week {student.currentWeek} of 14</p>
+          </div>
+          <NavLink
+            to="/settings"
+            onClick={() => setSidebarOpen(false)}
+            className={({ isActive }) =>
+              clsx(
+                'w-9 h-9 rounded-lg border flex items-center justify-center transition-colors',
+                isActive
+                  ? 'border-indigo-400/70 bg-indigo-500/20 text-indigo-300'
+                  : 'border-white/15 text-slate-400 hover:text-white hover:bg-white/10',
+              )
+            }
+            aria-label="Open Settings"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </NavLink>
         </div>
       </aside>
 
