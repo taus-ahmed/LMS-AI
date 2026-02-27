@@ -1,0 +1,1 @@
+export { useStudentStore } from './studentStore';
